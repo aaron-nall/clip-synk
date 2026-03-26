@@ -62,7 +62,7 @@ def unpack(raw: bytes) -> ClipboardContent:
     mime_type = "text/plain"
     for line in header_block.split(b"\r\n"):
         if line.lower().startswith(b"content-type:"):
-            mime_type = line.split(b":", 1)[1].strip().decode()
+            mime_type = line.split(b":", 1)[1].strip().decode("utf-8", errors="replace")
             break
 
     return ClipboardContent(mime_type=mime_type, data=payload)

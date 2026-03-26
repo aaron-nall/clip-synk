@@ -97,9 +97,9 @@ class MacOSClipboard(ClipboardBackend):
             if data:
                 return ClipboardContent(mime_type=MIME_PNG, data=data)
 
-        result = subprocess.run(["pbpaste"], capture_output=True, text=True, check=False)
+        result = subprocess.run(["pbpaste"], capture_output=True, check=False)
         if result.stdout:
-            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout.encode())
+            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
     def write_content(self, content: ClipboardContent) -> None:
@@ -164,11 +164,10 @@ class WaylandClipboard(ClipboardBackend):
         result = subprocess.run(
             ["wl-paste", "--no-newline"],
             capture_output=True,
-            text=True,
             check=False,
         )
         if result.stdout:
-            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout.encode())
+            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
     def write_content(self, content: ClipboardContent) -> None:
@@ -202,11 +201,10 @@ class XClipClipboard(ClipboardBackend):
         result = subprocess.run(
             ["xclip", "-selection", "clipboard", "-o"],
             capture_output=True,
-            text=True,
             check=False,
         )
         if result.stdout:
-            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout.encode())
+            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
     def write_content(self, content: ClipboardContent) -> None:
@@ -236,11 +234,10 @@ class XSelClipboard(ClipboardBackend):
         result = subprocess.run(
             ["xsel", "--clipboard", "--output"],
             capture_output=True,
-            text=True,
             check=False,
         )
         if result.stdout:
-            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout.encode())
+            return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
     def write_content(self, content: ClipboardContent) -> None:
