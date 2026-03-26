@@ -10,6 +10,7 @@ from typing import Optional
 from clipshare.clipboard import ClipboardBackend, get_clipboard_backend
 from clipshare.config import Config
 from clipshare.gpg import GPGWrapper
+from clipshare.models import ClipboardContent, pack, unpack
 from clipshare.watcher import FileWatcher
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ class ClipboardSync:
         self.backend: ClipboardBackend = get_clipboard_backend()
         self.gpg = GPGWrapper(binary=config.gpg_binary, homedir=config.gpg_homedir)
         self.watcher = FileWatcher(config.shared_file)
-        self._last_clipboard: Optional[str] = None
+        self._last_clipboard: Optional[ClipboardContent] = None
         self._last_write_time: float = 0.0
 
     def run(self) -> None:
@@ -53,7 +54,7 @@ class ClipboardSync:
 
         # Seed initial state so we don't immediately trigger on startup.
         self.watcher.update()
-        self._last_clipboard = self.backend.read()
+        self._last_clipboard = self.backend.read_content()
 
         while True:
             self._tick()
@@ -68,8 +69,8 @@ class ClipboardSync:
             self._pull_from_file()
 
         # Check for local changes (clipboard changed).
-        current_clip = self.backend.read()
-        if current_clip != self._last_clipboard and current_clip:
+        current_clip = self.backend.read_content()
+        if current_clip is not None and current_clip != self._last_clipboard:
             self._last_clipboard = current_clip
             if (now - self._last_write_time) > DEBOUNCE_SECONDS:
                 self._push_to_file(current_clip)
@@ -90,23 +91,26 @@ class ClipboardSync:
         if not data:
             return
 
-        plaintext = self.gpg.decrypt(data)
-        if plaintext is None:
+        raw = self.gpg.decrypt(data)
+        if raw is None:
             return
 
-        if plaintext != self._last_clipboard:
-            logger.debug("Remote clipboard changed, updating local clipboard.")
-            self.backend.write(plaintext)
-            self._last_clipboard = plaintext
+        content = unpack(raw)
+        if content != self._last_clipboard:
+            logger.debug("Remote clipboard changed (%s), updating local clipboard.", content.mime_type)
+            self.backend.write_content(content)
+            self._last_clipboard = content
 
-    def _push_to_file(self, content: str) -> None:
+    def _push_to_file(self, content: ClipboardContent) -> None:
         """Encrypt clipboard content and write it atomically to the shared file.
 
         Args:
-            content: The plaintext clipboard content to encrypt and store.
+            content: The clipboard content to encrypt and store.
         """
         try:
-            encrypted = self.gpg.encrypt(content, recipients=self.config.recipients, symmetric=self.config.symmetric)
+            encrypted = self.gpg.encrypt(
+                pack(content), recipients=self.config.recipients, symmetric=self.config.symmetric
+            )
         except Exception as e:
             logger.error("GPG encryption failed: %s", e)
             return
@@ -125,4 +129,4 @@ class ClipboardSync:
 
         self._last_write_time = time.monotonic()
         self.watcher.update()
-        logger.debug("Pushed clipboard to shared file.")
+        logger.debug("Pushed clipboard to shared file (%s).", content.mime_type)

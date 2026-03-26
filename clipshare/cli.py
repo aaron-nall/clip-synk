@@ -7,6 +7,7 @@ import sys
 
 from clipshare.config import load_config
 from clipshare.gpg import GPGWrapper
+from clipshare.models import pack, unpack
 from clipshare.sync import ClipboardSync
 
 
@@ -31,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--gpg-homedir", metavar="PATH", help="GPG home directory.")
     parser.add_argument("--once", action="store_true", help="Write current clipboard to the shared file once and exit.")
     parser.add_argument("--paste", action="store_true", help="Decrypt the shared file and print to stdout once.")
+    parser.add_argument(
+        "--output",
+        "-o",
+        metavar="PATH",
+        help="Write output to a file instead of stdout (useful with --paste for image data).",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose (INFO) logging.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser
@@ -70,7 +77,7 @@ def main() -> None:
     if args.once:
         _run_once(config)
     elif args.paste:
-        _run_paste(config)
+        _run_paste(config, output_path=args.output)
     else:
         _run_sync(config)
 
@@ -81,11 +88,11 @@ def _run_once(config) -> None:
 
     backend = get_clipboard_backend()
     gpg = GPGWrapper(binary=config.gpg_binary, homedir=config.gpg_homedir)
-    content = backend.read()
-    if not content:
+    content = backend.read_content()
+    if content is None:
         logging.getLogger(__name__).warning("Clipboard is empty, nothing to write.")
         return
-    encrypted = gpg.encrypt(content, recipients=config.recipients, symmetric=config.symmetric)
+    encrypted = gpg.encrypt(pack(content), recipients=config.recipients, symmetric=config.symmetric)
     import os
     import tempfile
 
@@ -101,11 +108,11 @@ def _run_once(config) -> None:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
-    logging.getLogger(__name__).info("Clipboard written to %s", config.shared_file)
+    logging.getLogger(__name__).info("Clipboard written to %s (%s)", config.shared_file, content.mime_type)
 
 
-def _run_paste(config) -> None:
-    """Decrypt the shared file and print to stdout."""
+def _run_paste(config, output_path=None) -> None:
+    """Decrypt the shared file and output it."""
     import os
 
     if not os.path.exists(config.shared_file):
@@ -114,11 +121,22 @@ def _run_paste(config) -> None:
     with open(config.shared_file, "rb") as f:
         data = f.read()
     gpg = GPGWrapper(binary=config.gpg_binary, homedir=config.gpg_homedir)
-    plaintext = gpg.decrypt(data)
-    if plaintext is None:
+    raw = gpg.decrypt(data)
+    if raw is None:
         logging.getLogger(__name__).error("Failed to decrypt shared file.")
         sys.exit(1)
-    sys.stdout.write(plaintext)
+
+    content = unpack(raw)
+
+    if output_path:
+        with open(output_path, "wb") as f:
+            f.write(content.data)
+        logging.getLogger(__name__).info("Wrote %s data to %s", content.mime_type, output_path)
+    else:
+        if content.is_image:
+            sys.stdout.buffer.write(content.data)
+        else:
+            sys.stdout.write(content.text)
 
 
 def _run_sync(config) -> None:

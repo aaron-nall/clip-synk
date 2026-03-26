@@ -43,11 +43,11 @@ class GPGWrapper:
             cmd.extend(["--homedir", self.homedir])
         return cmd
 
-    def encrypt(self, plaintext: str, recipients: Optional[List[str]] = None, symmetric: bool = False) -> bytes:
-        """Encrypt plaintext using GPG.
+    def encrypt(self, data: bytes, recipients: Optional[List[str]] = None, symmetric: bool = False) -> bytes:
+        """Encrypt raw bytes using GPG.
 
         Args:
-            plaintext: The text to encrypt.
+            data: The bytes to encrypt.
             recipients: GPG key IDs for asymmetric encryption.
             symmetric: If True, use symmetric encryption instead.
 
@@ -68,23 +68,23 @@ class GPGWrapper:
             for r in recipients:
                 cmd.extend(["--recipient", r])
 
-        result = subprocess.run(cmd, input=plaintext.encode(), capture_output=True, check=True)
+        result = subprocess.run(cmd, input=data, capture_output=True, check=True)
         return result.stdout
 
-    def decrypt(self, ciphertext: bytes) -> Optional[str]:
+    def decrypt(self, ciphertext: bytes) -> Optional[bytes]:
         """Decrypt GPG-encrypted data.
 
         Args:
             ciphertext: The encrypted data.
 
         Returns:
-            The decrypted plaintext, or None if decryption fails.
+            The decrypted bytes, or None if decryption fails.
         """
         cmd = self._base_cmd() + ["--decrypt"]
         # noinspection PyBroadException
         try:
             result = subprocess.run(cmd, input=ciphertext, capture_output=True, check=True)
-            return result.stdout.decode()
+            return result.stdout
         except Exception:
             logger.warning("GPG decryption failed (file may be mid-write on another machine).")
             return None
