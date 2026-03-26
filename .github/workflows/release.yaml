@@ -44,6 +44,12 @@ jobs:
           ")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Build wheel
+        if: steps.current.outputs.version != steps.previous.outputs.version
+        run: |
+          pip install build
+          python -m build
+
       - name: Create release
         if: steps.current.outputs.version != steps.previous.outputs.version
         env:
@@ -53,4 +59,5 @@ jobs:
           gh release create "$VERSION" \
             --title "$VERSION" \
             --generate-notes \
-            --target "${{ github.sha }}"
+            --target "${{ github.sha }}" \
+            dist/*
