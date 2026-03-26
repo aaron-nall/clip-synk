@@ -1,0 +1,56 @@
+name: release
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Get current version
+        id: current
+        run: |
+          VERSION=$(python -c "
+          import re
+          with open('pyproject.toml') as f:
+              m = re.search(r'^version\s*=\s*\"(.+?)\"', f.read(), re.M)
+              print(m.group(1))
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Get previous version
+        id: previous
+        run: |
+          git show HEAD~1:pyproject.toml > /tmp/prev_pyproject.toml 2>/dev/null || true
+          VERSION=$(python -c "
+          import re, sys
+          try:
+              with open('/tmp/prev_pyproject.toml') as f:
+                  m = re.search(r'^version\s*=\s*\"(.+?)\"', f.read(), re.M)
+                  print(m.group(1))
+          except Exception:
+              print('')
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        if: steps.current.outputs.version != steps.previous.outputs.version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="v${{ steps.current.outputs.version }}"
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            --target "${{ github.sha }}"
