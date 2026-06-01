@@ -99,7 +99,11 @@ class ClipboardSync:
         if content != self._last_clipboard:
             logger.debug("Remote clipboard changed (%s), updating local clipboard.", content.mime_type)
             self.backend.write_content(content)
-            self._last_clipboard = content
+            # The OS re-encodes images on write, so read-back bytes differ from what we wrote.
+            # Remember what the clipboard actually reports, not the file bytes, so the next tick
+            # doesn't mistake the re-encoded content for a fresh local copy and echo it back.
+            self._last_clipboard = self.backend.read_content() or content
+            self._last_write_time = time.monotonic()
 
     def _push_to_file(self, content: ClipboardContent) -> None:
         """Encrypt clipboard content and write it atomically to the shared file.
