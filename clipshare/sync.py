@@ -98,8 +98,11 @@ class ClipboardSync:
         content = unpack(raw)
         if content != self._last_clipboard:
             logger.debug("Remote clipboard changed (%s), updating local clipboard.", content.mime_type)
-            self.backend.write_content(content)
-            self._last_clipboard = content
+            # Only record content the backend actually applied; recording a
+            # dropped write would make the next tick see the unchanged local
+            # clipboard as "new" and push it back over the remote update.
+            if self.backend.write_content(content):
+                self._last_clipboard = content
 
     def _push_to_file(self, content: ClipboardContent) -> None:
         """Encrypt clipboard content and write it atomically to the shared file.

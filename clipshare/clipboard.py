@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Optional
+from typing import FrozenSet, Optional
 
 from clipshare.models import ClipboardContent
 
@@ -23,9 +23,11 @@ class ClipboardBackend(abc.ABC):
 
     Attributes:
         name: Human-readable name of this backend.
+        image_mime_types: Image MIME types this backend can write.
     """
 
     name: str = "abstract"
+    image_mime_types: FrozenSet[str] = frozenset()
 
     @abc.abstractmethod
     def read_content(self) -> Optional[ClipboardContent]:
@@ -37,13 +39,42 @@ class ClipboardBackend(abc.ABC):
             A ClipboardContent, or None if the clipboard is empty.
         """
 
-    @abc.abstractmethod
-    def write_content(self, content: ClipboardContent) -> None:
-        """Write content to the clipboard.
+    def write_content(self, content: ClipboardContent) -> bool:
+        """Write content to the clipboard if its type is supported.
 
         Args:
             content: The content to place on the clipboard.
+
+        Returns:
+            True if the content was applied, False if it was dropped
+            (unsupported content type) or the underlying write failed.
         """
+        is_image = content.is_image
+        supported = content.mime_type in self.image_mime_types if is_image else content.mime_type.startswith("text/")
+        if not supported:
+            logger.warning("%s cannot write %s content; ignoring.", self.name, content.mime_type)
+            return False
+
+        try:
+            if is_image:
+                self._write_image(content)
+            else:
+                self._write_text(content.text)
+        except (OSError, subprocess.CalledProcessError) as e:
+            logger.error("Clipboard write failed on %s: %s", self.name, e)
+            return False
+        return True
+
+    @abc.abstractmethod
+    def _write_text(self, text: str) -> None:
+        """Write plain text to the clipboard."""
+
+    def _write_image(self, content: ClipboardContent) -> None:
+        """Write image content to the clipboard.
+
+        Only called with MIME types listed in image_mime_types.
+        """
+        raise NotImplementedError
 
     def read(self) -> str:
         """Read clipboard text (convenience wrapper)."""
@@ -89,6 +120,7 @@ class MacOSClipboard(ClipboardBackend):
     """Clipboard backend for macOS using pbcopy/pbpaste and osascript for images."""
 
     name = "macOS (pbcopy/pbpaste)"
+    image_mime_types = frozenset({MIME_PNG})
 
     def read_content(self) -> Optional[ClipboardContent]:
         """Read clipboard content, preferring image over text."""
@@ -102,12 +134,9 @@ class MacOSClipboard(ClipboardBackend):
             return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
-    def write_content(self, content: ClipboardContent) -> None:
-        """Write content to the clipboard, dispatching by type."""
-        if content.is_image:
-            self._write_image(content.data)
-        else:
-            subprocess.run(["pbcopy"], input=content.text, text=True, check=True)
+    def _write_text(self, text: str) -> None:
+        """Write plain text to the clipboard via pbcopy."""
+        subprocess.run(["pbcopy"], input=text, text=True, check=True)
 
     def _read_image(self) -> Optional[bytes]:
         """Read PNG from macOS clipboard via osascript."""
@@ -133,10 +162,10 @@ class MacOSClipboard(ClipboardBackend):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    def _write_image(self, data: bytes) -> None:
+    def _write_image(self, content: ClipboardContent) -> None:
         """Write PNG to macOS clipboard via osascript."""
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(data)
+            tmp.write(content.data)
             tmp_path = tmp.name
         try:
             script = 'set the clipboard to (read POSIX file "%s" as «class PNGf»)' % tmp_path
@@ -149,6 +178,7 @@ class WaylandClipboard(ClipboardBackend):
     """Clipboard backend for Wayland using wl-copy/wl-paste."""
 
     name = "Wayland (wl-copy/wl-paste)"
+    image_mime_types = frozenset({MIME_PNG})
 
     def read_content(self) -> Optional[ClipboardContent]:
         """Read clipboard content, preferring image over text."""
@@ -170,22 +200,24 @@ class WaylandClipboard(ClipboardBackend):
             return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
-    def write_content(self, content: ClipboardContent) -> None:
-        """Write content to the clipboard, dispatching by type."""
-        if content.is_image:
-            subprocess.run(
-                ["wl-copy", "--type", content.mime_type],
-                input=content.data,
-                check=True,
-            )
-        else:
-            subprocess.run(["wl-copy"], input=content.text, text=True, check=True)
+    def _write_text(self, text: str) -> None:
+        """Write plain text to the clipboard via wl-copy."""
+        subprocess.run(["wl-copy"], input=text, text=True, check=True)
+
+    def _write_image(self, content: ClipboardContent) -> None:
+        """Write image data to the clipboard via wl-copy."""
+        subprocess.run(
+            ["wl-copy", "--type", content.mime_type],
+            input=content.data,
+            check=True,
+        )
 
 
 class XClipClipboard(ClipboardBackend):
     """Clipboard backend for X11 using xclip."""
 
     name = "X11 (xclip)"
+    image_mime_types = frozenset({MIME_PNG})
 
     def read_content(self) -> Optional[ClipboardContent]:
         """Read clipboard content, preferring image over text."""
@@ -207,21 +239,22 @@ class XClipClipboard(ClipboardBackend):
             return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
-    def write_content(self, content: ClipboardContent) -> None:
-        """Write content to the clipboard, dispatching by type."""
-        if content.is_image:
-            subprocess.run(
-                ["xclip", "-selection", "clipboard", "-t", content.mime_type],
-                input=content.data,
-                check=True,
-            )
-        else:
-            subprocess.run(
-                ["xclip", "-selection", "clipboard"],
-                input=content.text,
-                text=True,
-                check=True,
-            )
+    def _write_text(self, text: str) -> None:
+        """Write plain text to the clipboard via xclip."""
+        subprocess.run(
+            ["xclip", "-selection", "clipboard"],
+            input=text,
+            text=True,
+            check=True,
+        )
+
+    def _write_image(self, content: ClipboardContent) -> None:
+        """Write image data to the clipboard via xclip."""
+        subprocess.run(
+            ["xclip", "-selection", "clipboard", "-t", content.mime_type],
+            input=content.data,
+            check=True,
+        )
 
 
 class XSelClipboard(ClipboardBackend):
@@ -240,14 +273,11 @@ class XSelClipboard(ClipboardBackend):
             return ClipboardContent(mime_type=MIME_TEXT, data=result.stdout)
         return None
 
-    def write_content(self, content: ClipboardContent) -> None:
-        """Write text to clipboard (images are silently skipped)."""
-        if content.is_image:
-            logger.warning("xsel does not support image clipboard; ignoring image content.")
-            return
+    def _write_text(self, text: str) -> None:
+        """Write plain text to the clipboard via xsel."""
         subprocess.run(
             ["xsel", "--clipboard", "--input"],
-            input=content.text,
+            input=text,
             text=True,
             check=True,
         )
