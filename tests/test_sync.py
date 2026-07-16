@@ -3,6 +3,7 @@
 
 import os
 import subprocess
+import time
 from typing import List, Optional
 
 from clipshare.clipboard import MIME_PNG, MIME_TEXT, ClipboardBackend
@@ -186,3 +187,49 @@ def test_local_change_is_still_pushed(tmp_path):
 
     assert sync.gpg.encrypt_calls == 1
     assert os.path.exists(sync.config.shared_file)
+
+
+def test_fresh_local_copy_wins_over_concurrent_remote_change(tmp_path):
+    """A local copy must survive a remote file change landing on the same tick.
+
+    Reproduces the "first copy clears" bug: when the watched file appears
+    changed (e.g. Syncthing/NFS touching it on startup) in the same tick as a
+    fresh local copy, pulling first overwrote the just-copied content and the
+    read-back made the push path treat it as unchanged, so the copy was lost.
+    """
+    sync = make_sync(tmp_path, FakeBackend())
+    # Watcher seeded while no shared file exists yet, so the peer's write below
+    # registers as a pending remote change on the next tick.
+    sync.watcher.update()
+    share_remote(sync, ClipboardContent(mime_type=MIME_TEXT, data=b"stale remote content"))
+
+    fresh = ClipboardContent(mime_type=MIME_TEXT, data=b"fresh local copy")
+    sync.backend.contents = fresh
+
+    sync._tick()
+
+    assert sync.backend.contents == fresh
+    assert sync._last_clipboard == fresh
+    assert sync.gpg.encrypt_calls == 1
+
+
+def test_local_copy_during_debounce_is_not_swallowed(tmp_path):
+    """A copy made inside the debounce window must still be pushed on a later tick.
+
+    The tick must not record the new clipboard state while suppressing the push,
+    or the change would be treated as already-synced and never sent.
+    """
+    sync = make_sync(tmp_path, FakeBackend())
+    sync._last_write_time = time.monotonic()  # a write just happened: debounce active
+
+    fresh = ClipboardContent(mime_type=MIME_TEXT, data=b"copied during debounce")
+    sync.backend.contents = fresh
+
+    sync._tick()  # inside the debounce window: nothing pushed yet
+    assert sync.gpg.encrypt_calls == 0
+
+    sync._last_write_time = 0.0  # debounce window has passed
+    sync._tick()
+
+    assert sync.gpg.encrypt_calls == 1
+    assert sync._last_clipboard == fresh

@@ -64,16 +64,20 @@ class ClipboardSync:
         """Run one iteration of the sync loop."""
         now = time.monotonic()
 
-        # Check for remote changes (shared file changed).
-        if self.watcher.has_changed() and (now - self._last_write_time) > DEBOUNCE_SECONDS:
-            self._pull_from_file()
+        # Debounce our own recent write (either direction). Return before reading
+        # clipboard state so a copy made right now is retried, not swallowed.
+        if (now - self._last_write_time) <= DEBOUNCE_SECONDS:
+            return
 
-        # Check for local changes (clipboard changed).
+        # Local and remote changes are alternatives, and a fresh local copy wins:
+        # reading and pushing it before any pull keeps it from being clobbered by
+        # a stale pull on the same tick (see CLAUDE.md "Tick ordering").
         current_clip = self.backend.read_content()
         if current_clip is not None and current_clip != self._last_clipboard:
             self._last_clipboard = current_clip
-            if (now - self._last_write_time) > DEBOUNCE_SECONDS:
-                self._push_to_file(current_clip)
+            self._push_to_file(current_clip)
+        elif self.watcher.has_changed():
+            self._pull_from_file()
 
     def _pull_from_file(self) -> None:
         """Decrypt the shared file and write its contents to the local clipboard."""

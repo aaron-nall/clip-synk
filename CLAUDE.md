@@ -37,6 +37,7 @@ Data flows through a small set of single-responsibility modules. The orchestrato
 ### Things that aren't obvious from a single file
 
 - **Echo-loop prevention**: after a local push, `sync.py` records `_last_write_time` and calls `watcher.update()` so the watcher absorbs the machine's *own* write. `DEBOUNCE_SECONDS` (0.2s) further suppresses pull/push for changes that arrive right after a write. Changing this logic risks infinite ping-pong between machines.
+- **Tick ordering is load-bearing**: `_tick()` handles a local clipboard change and a remote pull as an `if/elif` with the local branch first, so a fresh local copy wins over a remote change landing on the same tick. This is deliberate — reversing it (pulling first) lets the pull overwrite the just-copied content while the read-back makes the push path think nothing changed locally, silently destroying the copy. The debounce guard at the top also returns *without* recording clipboard state, so a copy made inside the window is retried, not swallowed.
 - **Atomic writes**: both `sync.py` and `cli.py` write via `tempfile.mkstemp` in the destination's parent dir followed by `os.replace`, so peers never observe a half-written file. Keep new writers atomic.
 - **Encryption mode is mutually exclusive-ish**: `GPGWrapper.encrypt` requires either `symmetric=True` or a non-empty `recipients` list, else `ValueError`. The CLI enforces a `shared_file` is set but not the encryption mode.
 
