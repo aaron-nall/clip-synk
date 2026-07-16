@@ -7,6 +7,7 @@ import tempfile
 import time
 from typing import Optional
 
+from clipshare import __version__
 from clipshare.clipboard import ClipboardBackend, get_clipboard_backend
 from clipshare.config import Config
 from clipshare.gpg import GPGWrapper
@@ -48,7 +49,10 @@ class ClipboardSync:
         interval. Handles KeyboardInterrupt for clean shutdown.
         """
         logger.info(
-            "Starting clipboard sync (file=%s, poll=%.2fs).", self.config.shared_file, self.config.poll_interval
+            "Starting clipboard sync v%s (file=%s, poll=%.2fs).",
+            __version__,
+            self.config.shared_file,
+            self.config.poll_interval,
         )
         logger.info("Clipboard backend: %s", self.backend.name)
 
