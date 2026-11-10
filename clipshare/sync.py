@@ -56,13 +56,17 @@ class ClipboardSync:
         )
         logger.info("Clipboard backend: %s", self.backend.name)
 
-        # Seed initial state so we don't immediately trigger on startup.
-        self.watcher.update()
-        self._last_clipboard = self.backend.read_content()
+        self.backend.start_watching()
+        try:
+            # Seed initial state so we don't immediately trigger on startup.
+            self.watcher.update()
+            self._last_clipboard = self.backend.read_content()
 
-        while True:
-            self._tick()
-            time.sleep(self.config.poll_interval)
+            while True:
+                self._tick()
+                time.sleep(self.config.poll_interval)
+        finally:
+            self.backend.stop_watching()
 
     def _tick(self) -> None:
         """Run one iteration of the sync loop."""

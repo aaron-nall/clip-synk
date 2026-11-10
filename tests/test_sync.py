@@ -33,7 +33,7 @@ class FakeBackend(ClipboardBackend):
         self.reencodes_images = reencodes_images
         self.contents: Optional[ClipboardContent] = TEXT
 
-    def read_content(self) -> Optional[ClipboardContent]:
+    def _read_content_uncached(self) -> Optional[ClipboardContent]:
         """Return the in-memory clipboard contents."""
         return self.contents
 
