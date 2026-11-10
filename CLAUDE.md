@@ -45,7 +45,7 @@ Data flows through a small set of single-responsibility modules. The orchestrato
 ## Conventions & gotchas
 
 - **Copyright header is mandatory**: flake8-copyright requires every source file to begin with `# Copyright (c) ...`. New files without it fail pre-commit/CI.
-- **Test naming**: the `name-tests-test --unittest` hook requires test files to be named `test_*.py`. The `tests/` dir currently contains only `__init__.py` — there are no tests yet, so pytest passes trivially.
-- **Releases are version-driven**: `.github/workflows/release.yaml` runs on every push to `master` and creates a GitHub release **only when the `version` in `pyproject.toml` differs from the previous commit's**. To cut a release, bump `pyproject.toml`'s version in its own commit. Note that `clipshare/__init__.py.__version__` is maintained separately and can drift from `pyproject.toml` — keep them in sync when bumping.
+- **Test naming**: the `name-tests-test --unittest` hook requires test files to be named `test_*.py`. Tests import shared fakes (`FakeBackend`, `FakeGPG`) from `tests/test_sync.py`.
+- **Releases are version-driven**: `.github/workflows/release.yaml` runs on every push to `master` and creates a GitHub release **only when the `version` in `pyproject.toml` differs from the previous commit's**. To cut a release, bump `pyproject.toml`'s version in its own commit. The version lives only in `pyproject.toml`; `clipshare.__version__` (used by `--version` and the startup log) is read from installed package metadata, so a dev checkout reports the old version until you re-run `poetry install`.
 - **Python 3.10 support**: TOML parsing uses stdlib `tomllib` on 3.11+ and falls back to the `tomli` dependency on 3.10. Don't assume `tomllib` is always importable.
 - Line length is **120** everywhere (black and flake8 agree).

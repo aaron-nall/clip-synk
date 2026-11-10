@@ -5,6 +5,7 @@ import argparse
 import logging
 import sys
 
+from clipshare import __version__
 from clipshare.config import load_config
 from clipshare.gpg import GPGWrapper
 from clipshare.models import pack, unpack
@@ -40,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose (INFO) logging.")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
+    parser.add_argument("--version", action="version", version="%(prog)s " + __version__)
     return parser
 
 
